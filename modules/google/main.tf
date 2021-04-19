@@ -1,25 +1,32 @@
 # ------------------------------------------------------------------------------
 # INPUT VARIABLES (required)
 # ------------------------------------------------------------------------------
-
 variable "project_name" {}
-
-variable "org_id" {}
-
-variable "billing_account" {}
 
 # ------------------------------------------------------------------------------
 # INPUT VARIABLES (optional)
 # ------------------------------------------------------------------------------
 
-variable "default_region" {
+variable "org_id" {
   default = null
 }
 
-variable "default_zone" {
+variable "folder_id" {
   default = null
 }
 
+variable "billing_account" {
+  default = null
+}
+
+variable "region" {
+  default = null
+}
+
+variable "has_tfstate_bucket" {
+  type    = bool
+  default = false
+}
 
 # ------------------------------------------------------------------------------
 # OUTPUTS
@@ -30,7 +37,18 @@ output "project_id" {
 }
 
 output "tfstate_bucket_name" {
-  value = google_storage_bucket.tfstate_bucket.name
+  value = var.has_tfstate_bucket ? google_storage_bucket.tfstate_bucket[0].name : null
+}
+
+output "tfbackend_config" {
+  value = !var.has_tfstate_bucket ? null : <<-EOT
+    terraform {
+      backend "gcs" {
+        bucket = "${google_storage_bucket.tfstate_bucket[0].name}"
+       }
+    }
+  EOT
+  description = "Terraform configuration using \"tfstate_bucket\" as remote backend. Write this to a .tf file in the root module using a Terraform \"local_file\" resource, and subsequently run \"terraform init\" to migrate the local state to the remote backend. Don't forget to add the resulting .tf file to source control."
 }
 
 
@@ -48,24 +66,19 @@ resource "random_id" "tfstate_bucket_name" {
   prefix      = "${var.project_name}-tfstate-"
 }
 
-
-provider "google" {
-  project = random_id.project_id.dec
-  region = var.default_region
-  zone = var.default_zone
-}
-
 resource "google_project" "project" {
   name            = var.project_name
   project_id      = random_id.project_id.dec
   org_id          = var.org_id
+  folder_id       = var.folder_id
   billing_account = var.billing_account
 }
 
 resource "google_storage_bucket" "tfstate_bucket" {
+  count         = var.has_tfstate_bucket ? 1 : 0
   project       = google_project.project.project_id
   name          = random_id.tfstate_bucket_name.dec
-  location      = var.default_region
+  location      = var.region
   versioning {
     enabled = true
   }
