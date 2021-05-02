@@ -1,6 +1,7 @@
 # ------------------------------------------------------------------------------
 # INPUT VARIABLES (required)
 # ------------------------------------------------------------------------------
+
 variable "project_name" {}
 
 # ------------------------------------------------------------------------------
@@ -28,6 +29,17 @@ variable "has_tfstate_bucket" {
   default = false
 }
 
+variable "force_destroy_tfstate_bucket" {
+  type        = bool
+  default     = false
+  description = "Allow destruction of state bucket containing tfstate data"
+}
+
+variable "tfbackend_config_filename" {
+  default     = null
+  description = "Name of `.tf` file to be generated with remote backend configuration. The specified filename/path is relative to the current Terraform root module. After creation run `terraform init` to migrate local state to the remote backend. Don't forget to add the resulting `.tf` file to source control. Setting this variable to null destroys the `.tf` file, after which `terraform init` can be used to migrate remote state back to local state."
+}
+
 # ------------------------------------------------------------------------------
 # OUTPUTS
 # ------------------------------------------------------------------------------
@@ -36,21 +48,19 @@ output "project_id" {
   value = google_project.project.project_id
 }
 
-output "tfstate_bucket_name" {
-  value = var.has_tfstate_bucket ? google_storage_bucket.tfstate_bucket[0].name : null
-}
+# ------------------------------------------------------------------------------
+# LOCALS
+# ------------------------------------------------------------------------------
 
-output "tfbackend_config" {
-  value = !var.has_tfstate_bucket ? null : <<-EOT
+locals {
+  tfbackend_config = !var.has_tfstate_bucket ? null : <<-EOT
     terraform {
       backend "gcs" {
         bucket = "${google_storage_bucket.tfstate_bucket[0].name}"
        }
     }
   EOT
-  description = "Terraform configuration using \"tfstate_bucket\" as remote backend. Write this to a .tf file in the root module using a Terraform \"local_file\" resource, and subsequently run \"terraform init\" to migrate the local state to the remote backend. Don't forget to add the resulting .tf file to source control."
 }
-
 
 # ------------------------------------------------------------------------------
 # RESOURCES
@@ -83,5 +93,12 @@ resource "google_storage_bucket" "tfstate_bucket" {
     enabled = true
   }
   uniform_bucket_level_access = true
-  force_destroy = false
+  force_destroy = var.force_destroy_tfstate_bucket
+}
+
+resource "local_file" "tfbackend_google_file" {
+  count           = var.tfbackend_config_filename == null ? 0 : 1
+  content         = local.tfbackend_config
+  filename        = "${path.root}/${var.tfbackend_config_filename}"
+  file_permission = "0640"
 }
